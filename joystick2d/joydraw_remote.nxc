@@ -1,0 +1,173 @@
+/*
+File Name: joydraw_remote.nxc
+Modify by: Sam Lee
+Last Modify: November 03, 2009
+
+     JoyDraw  - Joystick driven plotting program like Etch-A-Sketch
+
+     (c) 2007 Doug Eaton
+     See identical program in NXT-G for comparison
+     Instructions and technical background available at:
+
+       http://www.elecbrick.com/joy/
+*/
+
+#include "NXCDefs.h"
+
+#define BT_CONN 1
+#define DEBUG_DISPLAY 1
+#define DEBUG_CALIBRATE 2
+#define DEBUG_XSCALE 4
+#define DEBUG_RAW 8
+#define MOTOR(p,s) RemoteSetOutputState(BT_CONN, p, s, OUT_MODE_MOTORON+OUT_MODE_BRAKE+OUT_MODE_REGULATED, OUT_REGMODE_SPEED, 0, OUT_RUNSTATE_RUNNING, 0)
+
+int debug=1;
+int Xscale1, Xscale2, Yscale1, Yscale2;
+int Xout, Yout;
+
+sub BTCheck(int conn)
+{
+  if ( !BluetoothStatus(conn) == NO_ERR )
+  {
+    TextOut(5,LCD_LINE2,"Error");
+    Wait(1000);
+    Stop(true);
+  }
+}
+
+void calibrate() {
+  int i, R1, R2;
+  int SW1, SW2, NW1, NW2, NE1, NE2, SE1, SE2;
+  int DispX, DispY;
+  TextOut(23, 28, "Calibrate", false);
+  for(i=0; i<4; i++) {
+    // Go clockwise trough 0:SW, 1:NW, 2:NE, 3:SE
+    DispX=74*(i&2)/2;
+    DispY=56*abs((i&1)-(i&2)/2);
+    TextOut(DispX, DispY,  "Here", false);
+    until(ButtonState(BTNCENTER)) ;
+    R1=Sensor(S1);
+    R2=Sensor(S2);
+    PlayFile("! Click.rso");
+    switch(i) {
+      case 0: SW1=0; SW2=0; ClearSensor(S1); ClearSensor(S2); break;
+      case 1: NW1=R1; NW2=R2; break;
+      case 2: NE1=R1; NE2=R2; break;
+      case 3: SE1=R1; SE2=R2; break;
+      default: PlayTone(440, 500);
+               PlayTone(495, 500);
+    }
+    until(!ButtonState(BTNCENTER)) ;
+    TextOut(DispX, DispY, "    ", false);
+    if(debug&DEBUG_CALIBRATE) {
+      string s;
+      s=NumToStr(R1);
+      s=StrCat("R1: ", s, "  ");
+      TextOut(12, 48, s, false);
+      s=NumToStr(R2);
+      s=StrCat("R2: ", s, "  ");
+      TextOut(12, 40, s, false);
+    }
+  }
+  // x=100/Xscale(r1+r2-Xoff) where Xscale=(ne1+ne2-Xoff) and Xoff=(sw1+sw2)
+  // y= 60/Yscale(r2-r1-Yoff) where Yscale=(ne2-ne1-Yoff) and Yoff=(sw2-sw1)
+  // By definition, sw1=0 and sw2=0 since we reset the counter in that corner
+  // This makes the math a lot easier setting Xoff=0 and Yoff=0
+  Xscale1=NE2+NE1;
+  Yscale1=NE2-NE1;
+  // The axies could be flipped so figure out what sensors
+  // need to be added or subtracted to calculate X and Y positions
+  if(abs(SE2+SE1)>abs(SE2-SE1)) {
+    // X varies as sum; Y varies as difference
+    Xscale2=Xscale1;
+    Yscale2=Yscale1;
+    Yscale1=-Yscale1;
+  } else {
+    // X varies as difference; Y varies as sum
+    Xscale2=Yscale1;
+    Yscale1=Xscale1;
+    Yscale2=Yscale1;
+    Xscale1=-Xscale2;
+  }
+  ClearScreen();
+  if(debug&DEBUG_XSCALE) {
+    string s;
+    s=NumToStr(Xscale1);
+    s=StrCat("Xscale1: ", s);
+    TextOut(12, 56, s, false);
+    s=NumToStr(Yscale1);
+    s=StrCat("Yscale1: ", s);
+    TextOut(12, 48, s, false);
+  }
+}
+
+task clear() {
+  until(ButtonState(BTNCENTER)) ;
+  ClearScreen();
+}
+
+task main() {
+  BTCheck(BT_CONN);
+  
+  int x, y;
+  int lastx, lasty;
+  int Xscale, Yscale;
+
+  Xscale=100;
+  Yscale=64;
+  SetSensor(S1, SENSOR_ROTATION);
+  SetSensor(S2, SENSOR_ROTATION);
+  
+  RemotePlayTone(BT_CONN, 4000, 100);
+  until(BluetoothStatus(BT_CONN) == NO_ERR);
+  Wait(110);
+  RemotePlaySoundFile(BT_CONN, "! Click.rso", false);
+  until(BluetoothStatus(BT_CONN) == NO_ERR);
+  //Wait(500);
+  RemoteResetMotorPosition(BT_CONN,OUT_C,true);
+  until(BluetoothStatus(BT_CONN)==NO_ERR)
+  
+  calibrate();
+  if(debug&DEBUG_RAW) {
+    Xscale=abs(Xscale1);
+    Yscale=abs(Yscale1);
+  }
+  start clear;
+  while(true) {
+    x=SENSOR_1*Xscale/Xscale1+SENSOR_2*Xscale/Xscale2;
+    if(x<0) x=0;
+    if(x>Xscale) x=Xscale;
+    y=SENSOR_1*Yscale/Yscale1+SENSOR_2*Yscale/Yscale2;
+    if(y<0) y=0;
+    if(y>Yscale) y=Yscale;
+    PointOut(x, y, false);
+    
+    Xout = x*2-100;
+    if((Xout<10)&&(Xout>-10)) Xout=0;
+    Yout = y*3-90;
+    if((Yout<10)&&(Yout>-10)) Yout=0;
+    
+    if(debug&DEBUG_DISPLAY) {
+      // Debug: Enable to display X and Y values
+      string s;
+      s=NumToStr(x);
+      s=StrCat("X: ", s, "  ");
+      TextOut(0, 8, s, false);
+      s=NumToStr(y);
+      s=StrCat("Y: ", s, "  ");
+      TextOut(0, 0, s, false);
+      
+      s=NumToStr(Xout);
+      s=StrCat("Xout: ", s, "  ");
+      TextOut(0, 24, s, false);
+      s=NumToStr(Yout);
+      s=StrCat("Yout: ", s, "  ");
+      TextOut(0, 16, s, false);
+      
+      MOTOR(OUT_A, Xout);
+      until(BluetoothStatus(BT_CONN)==NO_ERR);
+      MOTOR(OUT_C, Yout);
+      until(BluetoothStatus(BT_CONN)==NO_ERR);
+    }
+  }
+}

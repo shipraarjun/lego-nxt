@@ -1,0 +1,26 @@
+//Sensor_Reading _Display
+
+int R1, R2;      // R1 and R2 are defined as a global variable
+
+task main()
+{
+  SetSensor(S1, SENSOR_ROTATION);
+  SetSensor(S2, SENSOR_ROTATION);
+
+  int i = 1234;
+  ClearScreen();
+
+  while (true)
+  {
+    R1 = Sensor (S1);
+    R2 = Sensor (S2);
+
+    TextOut(15,LCD_LINE1,"R1:");
+    NumOut(60,LCD_LINE1, R1);
+    
+    TextOut(15,LCD_LINE2,"R2:");
+    NumOut(60,LCD_LINE2, R2);
+    
+    Wait(100);
+  }
+}
